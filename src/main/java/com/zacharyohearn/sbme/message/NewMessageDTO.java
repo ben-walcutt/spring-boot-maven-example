@@ -6,20 +6,14 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
-import java.time.ZonedDateTime;
-
 @Data
 @Builder
-@AllArgsConstructor
 @NoArgsConstructor
+@AllArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class MessageDTO {
-    private int messageId;
-    private String messageBody;
-    // TODO convert to something not local, ZonedDateTime GMT ish
-    private LocalDateTime createdTimeStamp;
-    private int userId;
+public class NewMessageDTO {
+    private String body;
     private String firstName;
     private String lastName;
+    private String dateOfBirth;
 }

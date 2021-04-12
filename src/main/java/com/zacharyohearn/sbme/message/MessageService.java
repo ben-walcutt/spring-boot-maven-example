@@ -1,123 +1,78 @@
 package com.zacharyohearn.sbme.message;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zacharyohearn.sbme.user.User;
+import com.zacharyohearn.sbme.user.UserException;
 import com.zacharyohearn.sbme.user.UserServiceClient;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.AllArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
+import org.springframework.web.client.HttpClientErrorException;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 @Service
+@AllArgsConstructor
 public class MessageService {
 
-    private static final Logger log = LoggerFactory.getLogger(MessageService.class);
+    private MessageRepository messageRepository;
+    private UserServiceClient userServiceClient;
 
-    public MessageRepository messageRepository;
-    public UserServiceClient userServiceClient;
-
-    public MessageService(MessageRepository messageRepository, UserServiceClient userServiceClient) {
-        this.messageRepository = messageRepository;
-        this.userServiceClient = userServiceClient;
-    }
-
-    private Message foundMessage = new Message();
-
-    public List<MessageDTO> getMessagesForUser(String firstName, String lastName, String dateOfBirth) {
-        User user = userServiceClient.getUser(firstName, lastName, dateOfBirth);
-        List<Message> list= messageRepository.findAllByUserId(user.getUserId());
-
-
-        list.sort(new Comparator<Message>() {
-            @Override
-            public int compare(Message o1, Message o2) {
-                return o1.getCreatedTimestamp().compareTo(o2.getCreatedTimestamp());
-            }
-        });
-
-        return c(list, firstName, lastName, user.getUserId());
-    }
-
-    private List<MessageDTO> c(List<Message> list, String first, String last, int userId) {
-        List<MessageDTO> retVal = new ArrayList<>();
-        for (Message message: list) {
-            retVal.add(MessageDTO.builder()
-                    .messageId(message.getMessageId())
-                    .messageBody(message.getMessageBody())
-                    .createdTimeStamp(message.getCreatedTimestamp())
-                    .firstName(first)
-                    .lastName(last)
-                    .userId(userId)
-                    .build());
+    List<MessageDTO> getMessagesForUser(String firstName, String lastName, String dateOfBirth) {
+        User user = userServiceClient.getUser(firstName, lastName, dateOfBirth).orElseThrow(() -> new UserException("Error encountered retrieving user details."));
+        List<Message> list = messageRepository.findAllByUserIdOrderByCreatedTimestampAsc(user.getUserId());
+        List<MessageDTO> mappedMessages = new ArrayList<>();
+        for(Message message: list) {
+            mappedMessages.add(mapToMessageDTO(message, user));
         }
-        return retVal;
+        return mappedMessages;
     }
 
-    public MessageDTO getFirst(String firstName, String lastName, String dateOfBirth)
-    {
-        User user = userServiceClient.getUser(firstName, lastName, dateOfBirth);
-        List<Message> list = messageRepository.findAllByUserId(user.getUserId());
-        list.sort(new Comparator<Message>() {
-            @Override
-            public int compare(Message o1, Message o2) {
-                return o1.getCreatedTimestamp().compareTo(o2.getCreatedTimestamp());
-            }
-        });
-        return c(list.get(0), firstName, lastName, user.getUserId());
-    }
-
-    private MessageDTO c(Message message, String first, String last, int user) {
+    private MessageDTO mapToMessageDTO(Message message, User user) {
         return MessageDTO.builder()
                 .messageId(message.getMessageId())
                 .messageBody(message.getMessageBody())
                 .createdTimeStamp(message.getCreatedTimestamp())
-                .firstName(first)
-                .lastName(last)
-                .userId(user)
+                .firstName(user.getFirstName())
+                .lastName(user.getLastName())
+                .userId(user.getUserId())
                 .build();
     }
 
-    public MessageDTO messageSearch(String firstName, String lastName, String dateOfBirth, String searchText) {
-        User user = null;
-        try {
-            user = userServiceClient.getUser(firstName, lastName, dateOfBirth);
-        } catch (Exception e)
-        {
-            log.error(e.getMessage(), e);
+    Optional<MessageDTO> messageSearch(String firstName, String lastName, String dateOfBirth, String searchText) {
+        User user = userServiceClient.getUser(firstName, lastName, dateOfBirth).orElseThrow(() -> new UserException("Error encountered retrieving user details."));
+        List<Message> messageMatches = messageRepository.findAllByMessageBodyContainsAndUserIdOrderByCreatedTimestampAsc(searchText, user.getUserId());
+        if (CollectionUtils.isEmpty(messageMatches)) {
+            return Optional.empty();
+        } else {
+            return Optional.of(mapToMessageDTO(messageMatches.get(0), user));
         }
-        List<Message> AllUserMessages = messageRepository.findAllByUserId(user.getUserId());
-        for (int i = 0; i < AllUserMessages.size(); i++) {
-            Message message = AllUserMessages.get(i);
-            if (message.getMessageBody().contains(searchText)) {
-                foundMessage = message;
-            }}
-
-        return c(foundMessage, firstName, lastName, user.getUserId());
     }
 
 
-    public void createNewMessage(String body, String firstName, String lastName, String dateOfBirth) throws JsonProcessingException
-    {
-        User user = null;
-        try {
-            user = userServiceClient.getUser(firstName, lastName, dateOfBirth);
-        } catch (Exception e) {
-            ObjectMapper om = new ObjectMapper();
-            log.error(om.writeValueAsString(e));
-            e.printStackTrace();
-        }
+    void createNewMessage(NewMessageDTO m) {
+        User user = userServiceClient.getUser(m.getFirstName(), m.getLastName(), m.getDateOfBirth()).orElseThrow(() -> new UserException("Error encountered retrieving user details."));
+        LocalDateTime currentDateTime = LocalDateTime.now();
         Message newMessage = Message.builder()
-                        .userId(user.getUserId())
-                .messageBody(body)
-                .createdTimestamp(LocalDateTime.now())
-                .lastUpdatedTimestamp(LocalDateTime.now())
+                .userId(user.getUserId())
+                .messageBody(m.getBody())
+                .createdTimestamp(currentDateTime)
+                .lastUpdatedTimestamp(currentDateTime)
                 .build();
         messageRepository.save(newMessage);
     }
 
+    MessageDTO editMessage(MessageDTO editMessage) {
+        Message message = messageRepository.getOne(editMessage.getMessageId());
+        if (message.getUserId() != editMessage.getUserId()) {
+            throw new HttpClientErrorException(HttpStatus.UNAUTHORIZED);
+        }
+        message.setMessageBody(editMessage.getMessageBody());
+        message.setLastUpdatedTimestamp(LocalDateTime.now());
+        messageRepository.save(message);
+        return editMessage;
+    }
 }

@@ -8,6 +8,7 @@ import java.util.List;
 
 @Repository
 public interface MessageRepository extends JpaRepository<Message, Integer> {
-    List<Message> findAllByUserId(int userId);
+    List<Message> findAllByUserIdOrderByCreatedTimestampAsc(int userId);
+    List<Message> findAllByMessageBodyContainsAndUserIdOrderByCreatedTimestampAsc(String text, int userId);
     Message findTopByCreatedTimestampAfter(LocalDateTime dateTime);
 }

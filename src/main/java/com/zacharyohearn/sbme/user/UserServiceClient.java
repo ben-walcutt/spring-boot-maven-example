@@ -1,22 +1,28 @@
 package com.zacharyohearn.sbme.user;
 
+import lombok.AllArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.List;
+import java.util.Optional;
 
-@Component
+@Service
+@AllArgsConstructor
 public class UserServiceClient {
 
-    @Value("${environment}")
-    private String environment;
+    @Value("${userServiceURL}")
+    private String userServiceURL;
 
-    @Autowired
     private RestTemplate restTemplate;
 
     /**
@@ -25,24 +31,14 @@ public class UserServiceClient {
      * @param lastName the last name of the user
      * @return The found {@code User} or {@code null} if no users were found
      */
-    public User getUser(String firstName, String lastName, String dateOfBirth) {
-        String url = getUrlForEnvironment() + "/search";
-        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(url)
+    public Optional<User> getUser(String firstName, String lastName, String dateOfBirth) {
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(userServiceURL)
                 .queryParam("firstName", firstName)  .queryParam("lastName", lastName).queryParam("dateOfBirth", dateOfBirth);
 
-        return restTemplate.getForObject(builder.buildAndExpand().toUri(), User.class);
-    }
-
-    private String getUrlForEnvironment() {
-        switch (environment) {
-            case "production":
-                return "http://userserivce.com";
-            case "test":
-            case "dev":
-                return "http://userserivce-test.com";
-            default:
-            case "local":
-                return "http://localhost:9999";
+        try {
+            return Optional.ofNullable(restTemplate.getForObject(builder.buildAndExpand().toUri(), User.class));
+        } catch (HttpClientErrorException | HttpServerErrorException | ResourceAccessException ex) {
+            return Optional.empty();
         }
     }
 }
